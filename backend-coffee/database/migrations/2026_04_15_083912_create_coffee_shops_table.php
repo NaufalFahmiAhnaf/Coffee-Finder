@@ -11,17 +11,18 @@ return new class extends Migration
      */
     public function up()
     {
-    Schema::create('coffee_shops', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('address');
-        $table->integer('price');
-        $table->float('rating');
-        $table->integer('capacity');
-        $table->double('latitude');
-        $table->double('longitude');
-        $table->text('facilities')->nullable();
-        $table->timestamps();
+        Schema::create('coffee_shops', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->text('description')->nullable();
+            $table->string('address');
+            $table->integer('price'); // average price
+            $table->float('rating');
+            $table->string('image_url')->nullable();
+            $table->double('latitude', 10, 8);
+            $table->double('longitude', 11, 8);
+            $table->json('facilities')->nullable(); // json format: {"wifi": true, "outdoor": true, "ac": true, "sockets": true, "smoking_room": true}
+            $table->timestamps();
         });
     }
 

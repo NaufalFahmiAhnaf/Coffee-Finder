@@ -11,12 +11,21 @@ class CoffeeShop extends Model
 
     protected $fillable = [
         'name',
+        'description',
         'address',
         'price',
         'rating',
-        'capacity',
+        'image_url',
         'latitude',
         'longitude',
         'facilities'
+    ];
+
+    protected $casts = [
+        'facilities' => 'array',
+        'latitude' => 'double',
+        'longitude' => 'double',
+        'price' => 'integer',
+        'rating' => 'float',
     ];
 }

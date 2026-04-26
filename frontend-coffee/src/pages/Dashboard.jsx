@@ -1,357 +1,483 @@
-import { useEffect, useState } from "react";
-import axios from "axios";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import L from "leaflet";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
-import Navbar from "../components/Navbar";
-import { motion } from "framer-motion";
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Coffee, Search, MapPin, Wifi, Wind, Zap, 
+  Navigation, Star, Sparkles, SlidersHorizontal, 
+  Cigarette, LogOut, Map as MapIcon, Grid, Loader2
+} from 'lucide-react';
+import axios from 'axios';
+import { GoogleGenAI } from '@google/genai';
 
-let DefaultIcon = L.icon({
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-L.Marker.prototype.options.icon = DefaultIcon;
+const userIcon = new L.Icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/149/149071.png',
+  iconSize: [35, 35],
+  iconAnchor: [17, 35],
+  popupAnchor: [0, -35],
+});
 
-function Dashboard() {
-  const [data, setData] = useState([]);
-  const [filtered, setFiltered] = useState([]);
-  const [userLocation, setUserLocation] = useState(null);
+function MapUpdater({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center) {
+      map.setView(center, 13);
+    }
+  }, [center, map]);
+  return null;
+}
 
-  const [maxPrice, setMaxPrice] = useState("");
-  const [minCapacity, setMinCapacity] = useState("");
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; 
+  const dLat = (lat2 - lat1) * Math.PI / 180;  
+  const dLon = (lon2 - lon1) * Math.PI / 180; 
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2); 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  return R * c; 
+};
 
-  const [favorites, setFavorites] = useState([]);
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const [username, setUsername] = useState('');
+  const [userCoords, setUserCoords] = useState({ lat: -7.250445, lng: 112.768845 });
+  const [coffeeShops, setCoffeeShops] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // ⭐ TAMBAHAN: AI WEIGHT
-  const [weights, setWeights] = useState({
-    distance: 0.4,
-    price: 0.2,
-    rating: 0.3,
-    capacity: 0.1,
+  const [showMap, setShowMap] = useState(true);
+  
+  const [filters, setFilters] = useState({
+    q: '',
+    max_price: '',
+    facilities: [],
+    sort_by: 'rating'
   });
 
-  useEffect(() => {
-    axios.get("http://127.0.0.1:8000/api/coffee-shops").then((res) => {
-      setData(res.data);
-      setFiltered(res.data);
-      setLoading(false);
-    });
-  }, []);
+  const [aiQuery, setAiQuery] = useState('');
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
 
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-      },
-      (error) => {
-        console.log("Gagal ambil lokasi", error);
+    const storedUser = localStorage.getItem('coffee_user');
+    const storedCoords = localStorage.getItem('coffee_coords');
+    if (!storedUser) {
+      navigate('/');
+      return;
+    }
+    setUsername(storedUser);
+    if (storedCoords) {
+      setUserCoords(JSON.parse(storedCoords));
+    }
+    fetchCoffeeShops(filters);
+  }, [navigate]);
+
+  const fetchCoffeeShops = async (currentFilters) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (currentFilters.q) params.append('q', currentFilters.q);
+      if (currentFilters.max_price && currentFilters.max_price > 0) params.append('max_price', currentFilters.max_price);
+      // We handle 'nearest' sorting on frontend since we need user coords
+      if (currentFilters.sort_by && currentFilters.sort_by !== 'nearest') {
+        params.append('sort_by', currentFilters.sort_by);
       }
-    );
-  }, []);
+      if (currentFilters.facilities.length > 0) {
+        currentFilters.facilities.forEach(f => params.append('facilities[]', f));
+      }
 
-  const toggleFavorite = (id) => {
-    if (favorites.includes(id)) {
-      setFavorites(favorites.filter((f) => f !== id));
-    } else {
-      setFavorites([...favorites, id]);
+      const res = await axios.get(`/api/coffee-shops?${params.toString()}`);
+      let data = res.data;
+
+      if (!Array.isArray(data)) {
+        console.error("Invalid data received from API:", data);
+        setCoffeeShops([]);
+        return;
+      }
+
+      // Add distance to each shop
+      data = data.map(shop => ({
+        ...shop,
+        distance: calculateDistance(userCoords?.lat || -7.250445, userCoords?.lng || 112.768845, shop.latitude, shop.longitude)
+      }));
+
+      // Sort nearest if selected
+      if (currentFilters.sort_by === 'nearest') {
+        data.sort((a, b) => a.distance - b.distance);
+      }
+
+      setCoffeeShops(data);
+    } catch (error) {
+      console.error("Failed to fetch coffee shops:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleFilter = () => {
-    let result = data;
+  const handleFilterChange = (key, value) => {
+    const newFilters = { ...filters, [key]: value };
+    setFilters(newFilters);
+    fetchCoffeeShops(newFilters);
+  };
 
-    if (maxPrice) {
-      result = result.filter((item) => item.price <= maxPrice);
+  const toggleFacility = (facility) => {
+    const isSelected = filters.facilities.includes(facility);
+    const newFacilities = isSelected 
+      ? filters.facilities.filter(f => f !== facility)
+      : [...filters.facilities, facility];
+    handleFilterChange('facilities', newFacilities);
+  };
+
+  const handleAiSearch = async () => {
+    if (!aiQuery) return;
+    setIsAiProcessing(true);
+    
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      let detectedFilters = { q: '', facilities: [], max_price: '' };
+
+      if (apiKey) {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `
+          Extract coffee shop preferences from this text: "${aiQuery}".
+          Return a strict JSON object with these keys:
+          - q: (string, if they mention a specific name or keyword, else empty)
+          - facilities: (array of strings, choose only from: ["wifi", "outdoor", "ac", "sockets", "smoking_room"])
+          - max_price: (number, if they mention a max price like 'under 50k' -> 50000, else empty string)
+          Only return the JSON, no markdown.
+        `;
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        const text = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        detectedFilters = JSON.parse(text);
+      } else {
+        const lowerQ = aiQuery.toLowerCase();
+        if (lowerQ.includes('wifi')) detectedFilters.facilities.push('wifi');
+        if (lowerQ.includes('outdoor') || lowerQ.includes('luar')) detectedFilters.facilities.push('outdoor');
+        if (lowerQ.includes('ac') || lowerQ.includes('dingin') || lowerQ.includes('indoor')) detectedFilters.facilities.push('ac');
+        if (lowerQ.includes('colokan') || lowerQ.includes('ngecas')) detectedFilters.facilities.push('sockets');
+        if (lowerQ.includes('rokok') || lowerQ.includes('smoking')) detectedFilters.facilities.push('smoking_room');
+        
+        const priceMatch = lowerQ.match(/(\d+)\s*(rb|ribu|k)/);
+        if (priceMatch) {
+            detectedFilters.max_price = parseInt(priceMatch[1]) * 1000;
+        }
+      }
+
+      const newFilters = { 
+        ...filters, 
+        facilities: detectedFilters.facilities, 
+        max_price: detectedFilters.max_price,
+        q: detectedFilters.q 
+      };
+      setFilters(newFilters);
+      fetchCoffeeShops(newFilters);
+      setAiQuery(''); 
+
+    } catch (err) {
+      console.error("AI Error:", err);
+      alert("AI Processing Failed. Please try manual filters.");
+    } finally {
+      setIsAiProcessing(false);
     }
-
-    if (minCapacity) {
-      result = result.filter((item) => item.capacity >= minCapacity);
-    }
-
-    setFiltered(result);
   };
 
-  function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) ** 2;
-
-    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-
-  // ⭐ TAMBAHAN: NORMALISASI
-  const normalize = (value, min, max) => {
-    if (max === min) return 0;
-    return (value - min) / (max - min);
+  const openGoogleMaps = (name, address) => {
+    const query = encodeURIComponent(`${name} ${address}`);
+    const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+    window.open(url, '_blank');
   };
 
-  // ⭐ UPGRADE AI SCORING
-  const getScore = (shop) => {
-    if (!userLocation) return 999;
-
-    const distances = filtered.map((s) =>
-      getDistance(
-        userLocation.lat,
-        userLocation.lng,
-        s.latitude,
-        s.longitude
-      )
-    );
-
-    const prices = filtered.map((s) => s.price);
-    const ratings = filtered.map((s) => s.rating);
-    const capacities = filtered.map((s) => s.capacity);
-
-    const minD = Math.min(...distances);
-    const maxD = Math.max(...distances);
-
-    const minP = Math.min(...prices);
-    const maxP = Math.max(...prices);
-
-    const minR = Math.min(...ratings);
-    const maxR = Math.max(...ratings);
-
-    const minC = Math.min(...capacities);
-    const maxC = Math.max(...capacities);
-
-    const d = getDistance(
-      userLocation.lat,
-      userLocation.lng,
-      shop.latitude,
-      shop.longitude
-    );
-
-    const normDistance = normalize(d, minD, maxD);
-    const normPrice = normalize(shop.price, minP, maxP);
-    const normRating = normalize(shop.rating, minR, maxR);
-    const normCapacity = normalize(shop.capacity, minC, maxC);
-
-    return (
-      weights.distance * normDistance +
-      weights.price * normPrice +
-      weights.rating * (1 - normRating) +
-      weights.capacity * (1 - normCapacity)
-    );
+  const facilityIcons = {
+    wifi: <Wifi className="w-4 h-4" />,
+    outdoor: <Wind className="w-4 h-4" />,
+    ac: <Wind className="w-4 h-4" />,
+    sockets: <Zap className="w-4 h-4" />,
+    smoking_room: <Cigarette className="w-4 h-4" />
   };
-
-  const getDistanceText = (shop) => {
-    if (!userLocation) return "-";
-
-    const d = getDistance(
-      userLocation.lat,
-      userLocation.lng,
-      shop.latitude,
-      shop.longitude
-    );
-
-    return d.toFixed(2) + " km";
-  };
-
-  const sortedShops = [...filtered].sort(
-    (a, b) => getScore(a) - getScore(b)
-  );
-
-  if (loading) {
-    return (
-      <div className="text-center mt-20 text-lg font-semibold">
-        ⏳ Loading data coffee shop...
-      </div>
-    );
-  }
 
   return (
-    <div className="bg-gray-100 min-h-screen">
-      <Navbar />
-
-      <div className="pt-20">
-        <h2 className="text-xl font-bold p-4">
-          👋 Hai {localStorage.getItem("username")}, siap ngopi hari ini?
-        </h2>
-
-        <div className="bg-gradient-to-r from-amber-600 to-amber-800 text-white p-5 shadow-lg">
-          <h1 className="text-2xl font-bold text-center">☕ Coffee Finder</h1>
-          <p className="text-center text-sm opacity-80">
-            Temukan coffee shop terbaik berdasarkan preferensi kamu
-          </p>
-        </div>
-
-        {/* FILTER */}
-        <div className="p-6 bg-white shadow-md rounded-xl mx-4 mt-4 flex flex-wrap gap-4 justify-center">
-          <input
-            type="number"
-            placeholder="💰 Harga maksimal"
-            className="p-3 rounded-lg border"
-            value={maxPrice}
-            onChange={(e) => setMaxPrice(e.target.value)}
-          />
-
-          <input
-            type="number"
-            placeholder="👥 Kapasitas minimal"
-            className="p-3 rounded-lg border"
-            value={minCapacity}
-            onChange={(e) => setMinCapacity(e.target.value)}
-          />
-
-          <button
-            onClick={handleFilter}
-            className="bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 transition"
-          >
-            🔍 Cari Sekarang
-          </button>
-        </div>
-
-        {/* ⭐ TAMBAHAN: AI CONTROL */}
-        <div className="p-4 bg-white mx-4 mt-4 rounded-xl shadow">
-          <h2 className="font-bold mb-2">⚙️ Prioritas AI</h2>
-
-          <label>Jarak</label>
-          <input type="range" min="0" max="1" step="0.1"
-            value={weights.distance}
-            onChange={(e) =>
-              setWeights({ ...weights, distance: parseFloat(e.target.value) })
-            }
-          />
-
-          <label>Harga</label>
-          <input type="range" min="0" max="1" step="0.1"
-            value={weights.price}
-            onChange={(e) =>
-              setWeights({ ...weights, price: parseFloat(e.target.value) })
-            }
-          />
-
-          <label>Rating</label>
-          <input type="range" min="0" max="1" step="0.1"
-            value={weights.rating}
-            onChange={(e) =>
-              setWeights({ ...weights, rating: parseFloat(e.target.value) })
-            }
-          />
-
-          <label>Kapasitas</label>
-          <input type="range" min="0" max="1" step="0.1"
-            value={weights.capacity}
-            onChange={(e) =>
-              setWeights({ ...weights, capacity: parseFloat(e.target.value) })
-            }
-          />
-        </div>
-
-        {/* SISANYA TETAP (TIDAK DIUBAH) */}
-
-        {/* REKOMENDASI */}
-        <div className="p-6">
-          <h2 className="text-lg font-bold mb-2">
-            🔥 Rekomendasi Terbaik
-          </h2>
-
-          {sortedShops.slice(0, 3).map((item, index) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              className="bg-white p-4 rounded-xl shadow-lg mb-4"
-            >
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-lg">
-                  #{index + 1} {item.name}
-                </h3>
-
-                <button onClick={() => toggleFavorite(item.id)}>
-                  {favorites.includes(item.id) ? "❤️" : "🤍"}
-                </button>
+    <div className="min-h-screen bg-background font-sans flex flex-col">
+      
+      {/* TOP NAVIGATION BAR */}
+      <header className="bg-surface border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-20">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 p-2.5 rounded-xl border border-primary/20">
+                <Coffee className="text-primary w-7 h-7" />
               </div>
+              <span className="text-2xl font-black text-textMain tracking-tight">
+                Coffe<span className="text-primary">Track</span>
+              </span>
+            </div>
 
-              <p>⭐ Rating: {item.rating}</p>
-              <p>💰 Harga: {item.price}</p>
-              <p>📍 Jarak: {getDistanceText(item)}</p>
-
-              <a
-                href={`https://www.google.com/maps?q=${item.latitude},${item.longitude}`}
-                target="_blank"
-                className="text-blue-500 text-sm underline"
-              >
-                Buka di Google Maps →
-              </a>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* LIST */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4">
-          {filtered.map((item) => (
-            <div
-              key={item.id}
-              className="bg-white p-5 rounded-2xl shadow-md hover:shadow-xl transition"
-            >
-              <div className="flex justify-between">
-                <h2 className="text-lg font-bold">{item.name}</h2>
-
-                <button onClick={() => toggleFavorite(item.id)}>
-                  {favorites.includes(item.id) ? "❤️" : "🤍"}
+            {/* AI Search Bar */}
+            <div className="hidden md:flex flex-1 max-w-xl mx-8">
+              <div className="w-full flex items-center bg-gray-50 border border-gray-200 rounded-2xl p-1.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all shadow-sm">
+                <div className="pl-4 pr-2">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                </div>
+                <input 
+                  type="text" 
+                  placeholder="AI Smart Search: 'Cafe nyaman ada colokan under 30k'" 
+                  className="flex-1 bg-transparent border-none focus:outline-none text-textMain placeholder:text-textMuted text-sm py-2"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAiSearch()}
+                />
+                <button 
+                  onClick={handleAiSearch}
+                  disabled={isAiProcessing}
+                  className="bg-primary hover:bg-primary-hover text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md hover:shadow-lg disabled:opacity-70"
+                >
+                  {isAiProcessing ? "Wait..." : "Find"}
                 </button>
-              </div>
-
-              <p className="text-sm text-gray-500">{item.address}</p>
-
-              <div className="mt-3 space-y-1">
-                <p>💰 Harga: {item.price}</p>
-                <p>⭐ Rating: {item.rating}</p>
-                <p>👥 Kapasitas: {item.capacity}</p>
-                <p>📍 Jarak: {getDistanceText(item)}</p>
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* MAP */}
-        <div className="p-4">
-          <h2 className="text-lg font-bold mb-2">
-            🗺️ Lihat di Map
-          </h2>
-
-          <MapContainer
-            center={[-7.250445, 112.768845]}
-            zoom={13}
-            style={{ height: "400px", width: "100%" }}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-            {filtered.map((item) => (
-              <Marker
-                key={item.id}
-                position={[item.latitude, item.longitude]}
+            {/* User Profile */}
+            <div className="flex items-center gap-4">
+              <div className="hidden lg:block text-right">
+                <p className="text-sm font-bold text-textMain leading-tight">{username}</p>
+                <p className="text-xs text-textMuted font-medium">Coffee Explorer</p>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-primary to-amber-500 flex items-center justify-center text-white font-bold text-lg shadow-md">
+                {username.charAt(0).toUpperCase()}
+              </div>
+              <button 
+                onClick={() => { localStorage.clear(); navigate('/'); }}
+                className="p-2 text-textMuted hover:text-red-500 transition-colors bg-gray-50 rounded-full hover:bg-red-50"
+                title="Logout"
               >
-                <Popup>
-                  <b>{item.name}</b>
-                </Popup>
-              </Marker>
-            ))}
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
 
-            {userLocation && (
-              <Marker position={[userLocation.lat, userLocation.lng]}>
-                <Popup>Lokasi Kamu</Popup>
-              </Marker>
-            )}
-          </MapContainer>
+      {/* MOBILE AI SEARCH */}
+      <div className="md:hidden p-4 bg-surface border-b border-gray-200">
+        <div className="w-full flex items-center bg-gray-50 border border-gray-200 rounded-xl p-1 focus-within:border-primary transition-all">
+          <input 
+            type="text" 
+            placeholder="AI Search..." 
+            className="flex-1 bg-transparent border-none focus:outline-none px-4 text-sm"
+            value={aiQuery}
+            onChange={(e) => setAiQuery(e.target.value)}
+          />
+          <button onClick={handleAiSearch} className="bg-primary text-white p-2 rounded-lg">
+            <Search className="w-4 h-4" />
+          </button>
         </div>
       </div>
+
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+        
+        {/* FILTERS & CONTROLS */}
+        <section className="bg-surface p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between">
+          
+          <div className="flex flex-wrap gap-4 items-center flex-1">
+            <div className="flex items-center gap-2 mr-4">
+              <SlidersHorizontal className="w-5 h-5 text-primary" />
+              <span className="font-bold text-textMain">Filters:</span>
+            </div>
+
+            {/* Manual Price Input */}
+            <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200 focus-within:border-primary transition-colors">
+              <span className="text-sm font-semibold text-textMuted">Max Rp</span>
+              <input 
+                type="number" 
+                placeholder="e.g. 50000"
+                value={filters.max_price}
+                onChange={(e) => handleFilterChange('max_price', e.target.value)}
+                className="bg-transparent border-none w-24 text-sm font-bold text-textMain focus:outline-none"
+              />
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center gap-2">
+              <select 
+                value={filters.sort_by} 
+                onChange={(e) => handleFilterChange('sort_by', e.target.value)}
+                className="bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-textMain px-4 py-2 focus:border-primary focus:outline-none cursor-pointer"
+              >
+                <option value="nearest">📍 Terdekat dari Saya</option>
+                <option value="rating">⭐ Rating Tertinggi</option>
+                <option value="price_asc">💵 Harga Termurah</option>
+                <option value="price_desc">💎 Harga Termahal</option>
+              </select>
+            </div>
+            
+            {/* Facilities Toggle */}
+            <div className="flex flex-wrap gap-2 lg:ml-4">
+              {['wifi', 'outdoor', 'ac', 'sockets', 'smoking_room'].map(fac => (
+                <button
+                  key={fac}
+                  onClick={() => toggleFacility(fac)}
+                  className={`text-xs px-3 py-2 rounded-xl border transition-all flex items-center gap-1.5 font-semibold ${
+                    filters.facilities.includes(fac) 
+                      ? 'bg-primary border-primary text-white shadow-md shadow-primary/20' 
+                      : 'bg-surface border-gray-200 text-textMuted hover:border-primary/50 hover:bg-orange-50'
+                  }`}
+                >
+                  {facilityIcons[fac]}
+                  <span className="capitalize hidden sm:block">{fac.replace('_', ' ')}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+             <button 
+                onClick={() => setShowMap(!showMap)}
+                className={`px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all border ${
+                  showMap ? 'bg-textMain text-white border-textMain' : 'bg-surface text-textMain border-gray-200 hover:bg-gray-50'
+                }`}
+             >
+                {showMap ? <Grid className="w-4 h-4" /> : <MapIcon className="w-4 h-4" />}
+                {showMap ? 'Hide Map' : 'Show Map'}
+             </button>
+          </div>
+        </section>
+
+        {/* MAPS SECTION (TOGGLEABLE) */}
+        <AnimatePresence>
+          {showMap && (
+            <motion.section 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="w-full h-[350px] lg:h-[400px] rounded-3xl overflow-hidden shadow-lg border border-gray-200 z-0 relative"
+            >
+              <MapContainer 
+                center={[userCoords?.lat || -7.25, userCoords?.lng || 112.76]} 
+                zoom={12} 
+                style={{ height: '100%', width: '100%', zIndex: 1 }}
+              >
+                <TileLayer
+                  url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                />
+                <MapUpdater center={[userCoords?.lat || -7.25, userCoords?.lng || 112.76]} />
+                
+                <Marker position={[userCoords?.lat || -7.25, userCoords?.lng || 112.76]} icon={userIcon}>
+                  <Popup><div className="font-bold text-primary text-center">Lokasi Anda</div></Popup>
+                </Marker>
+
+                {coffeeShops.map(shop => (
+                  <Marker key={shop.id} position={[shop.latitude, shop.longitude]}>
+                    <Popup>
+                      <div className="font-sans">
+                        <h4 className="font-bold text-textMain m-0 text-base">{shop.name}</h4>
+                        <p className="text-primary font-bold m-0 mt-1 flex items-center gap-1 text-sm">
+                          <Star className="w-3 h-3 fill-primary" /> {shop.rating}
+                        </p>
+                        <button 
+                          onClick={(e) => { e.preventDefault(); openGoogleMaps(shop.name, shop.address); }}
+                          className="mt-3 w-full bg-primary hover:bg-primary-hover text-white rounded-lg p-2 text-xs font-bold border-none cursor-pointer transition-colors"
+                        >
+                          Direction
+                        </button>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </motion.section>
+          )}
+        </AnimatePresence>
+
+        {/* RESULTS GRID */}
+        <section>
+          <div className="flex items-center justify-between mb-6 px-2">
+            <h2 className="text-2xl font-black text-textMain">Rekomendasi Kafe</h2>
+            <span className="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-bold border border-primary/20">
+              {coffeeShops.length} Places
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20 text-primary font-bold">
+               <Loader2 className="w-8 h-8 animate-spin mr-3" /> Fetching best spots...
+            </div>
+          ) : coffeeShops.length === 0 ? (
+            <div className="text-center py-20 bg-surface rounded-3xl border border-gray-100">
+              <Coffee className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-xl font-bold text-textMain mb-2">Tidak ada yang cocok</h3>
+              <p className="text-textMuted">Coba ganti filter atau naikkan rentang harga Anda.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
+              {coffeeShops.map((shop, idx) => (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: idx * 0.05 }}
+                  key={shop.id}
+                  className="bg-surface rounded-3xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group flex flex-col"
+                >
+                  <div className="h-48 overflow-hidden relative">
+                    <img 
+                      src={shop.image_url || 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=500&q=80'} 
+                      alt={shop.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                    <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-sm">
+                      <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                      <span className="font-bold text-sm text-textMain">{shop.rating}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="p-5 flex-1 flex flex-col">
+                    <h4 className="text-xl font-black text-textMain mb-1 line-clamp-1">{shop.name}</h4>
+                    <p className="text-xs font-medium text-textMuted line-clamp-1 mb-4">{shop.address}</p>
+                    
+                    <div className="flex items-center gap-3 mb-4 mt-auto">
+                      <span className="bg-orange-50 text-primary px-3 py-1.5 rounded-lg text-sm font-bold border border-orange-100">
+                        Rp {(shop.price / 1000).toFixed(0)}k
+                      </span>
+                      <span className="flex items-center gap-1 text-sm font-bold text-textMuted bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
+                        <Navigation className="w-4 h-4 text-primary" />
+                        {shop.distance.toFixed(1)} km
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 mb-5">
+                       {shop.facilities && Object.entries(shop.facilities).map(([key, value]) => {
+                         if (value && facilityIcons[key]) {
+                           return <div key={key} className="text-textMuted p-1.5 bg-gray-50 rounded-lg border border-gray-100" title={key}>{facilityIcons[key]}</div>
+                         }
+                         return null;
+                       })}
+                    </div>
+                    
+                    <button 
+                      onClick={() => openGoogleMaps(shop.name, shop.address)}
+                      className="w-full bg-textMain hover:bg-black text-white rounded-xl py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors mt-auto shadow-md"
+                    >
+                      <MapPin className="w-4 h-4 text-primary" />
+                      Open in Google Maps
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }
-
-export default Dashboard;
