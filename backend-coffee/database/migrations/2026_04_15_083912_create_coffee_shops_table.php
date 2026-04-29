@@ -12,10 +12,11 @@ return new class extends Migration
     public function up()
     {
         Schema::create('coffee_shops', function (Blueprint $table) {
+
             $table->id();
             $table->string('name');
             $table->text('description')->nullable();
-            $table->string('address');
+            $table->string('address')->nullable();
             $table->integer('price'); // average price
             $table->float('rating');
             $table->string('image_url')->nullable();
