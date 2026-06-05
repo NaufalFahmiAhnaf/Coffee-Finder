@@ -1,7 +1,16 @@
 # Coffee-Finder
 
+### Next Update (Soon)
+
+- Notifikasi (Notifikasi)
+Case: Ketika user berada di suatu lokasi, dan ternyata terdapat coffeeshop terdekat, maka user akan mendapatkan notifikasi jika disekitarnya terdapat coffeshop
+
+- Opsi user bisa menambahkan lokasi coffeshop (Lokasi)
+Case: User merasa coffeeshop yang di datangi recommend untuk dikunjungi, maka user bisa menambah lokasi coffeeshop tersebut berdasarkan koordinat yang dia sekarang (long, lat)
+
 
 ### Backend
+
 ```bash
 cd .../backend-coffee
 cp .env.example .env
