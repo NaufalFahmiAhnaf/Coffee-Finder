@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<<<<<<< HEAD
     <uses-permission android:name="android.permission.INTERNET"/>
+=======
+>>>>>>> ba18f1633387b0253b5da2913e8c23077f18dfb8
     <application
         android:label="mobile_coffee"
         android:name="${applicationName}"
