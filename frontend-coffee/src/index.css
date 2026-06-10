@@ -1,0 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-textMain font-sans antialiased;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FDFBF7;
+}
+::-webkit-scrollbar-thumb {
+  background: #E0E0E0;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #E67E22;
+}
+
+/* Leaflet Custom Popup */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: #FFFFFF !important;
+  color: #2C3E50 !important;
+  border: 1px solid rgba(0,0,0,0.05);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: #7F8C8D !important;
+}
+.leaflet-container a.leaflet-popup-close-button:hover {
+  color: #E67E22 !important;
+}
+.leaflet-popup-content .text-gray-900 {
+  color: #2C3E50 !important;
+}
