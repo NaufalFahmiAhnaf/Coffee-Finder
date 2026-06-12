@@ -3,11 +3,11 @@
 ### Next Update (Soon)
 
 - Notifikasi (Notifikasi)
-Case: Ketika user berada di suatu lokasi, dan ternyata terdapat coffeeshop terdekat, maka user akan mendapatkan notifikasi jika disekitarnya terdapat coffeshop
+  Case: Ketika user berada di suatu lokasi, dan ternyata terdapat coffeeshop terdekat, maka user akan mendapatkan notifikasi jika disekitarnya terdapat coffeshop
+  (Pake perhitungan region koordinat terdekat, apabila terdapat koordinat terdekat dari user dalam range tertentu, maka akan diberi notifikasi)
 
 - Opsi user bisa menambahkan lokasi coffeshop (Lokasi)
-Case: User merasa coffeeshop yang di datangi recommend untuk dikunjungi, maka user bisa menambah lokasi coffeeshop tersebut berdasarkan koordinat yang dia sekarang (long, lat)
-
+  Case: User merasa coffeeshop yang di datangi recommend untuk dikunjungi, maka user bisa menambah lokasi coffeeshop tersebut berdasarkan koordinat yang dia sekarang (long, lat)
 
 ### Backend
 
@@ -40,6 +40,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 [3] flutter run
 
 ```
+
 #### Any Additional
 
 ```bash
