@@ -31,8 +31,10 @@ class CoffeeShop {
     double userLat = defaultUserLat,
     double userLng = defaultUserLng,
   }) {
-    final lat = json['latitude'] != null ? (json['latitude'] as num).toDouble() : defaultUserLat;
-    final lng = json['longitude'] != null ? (json['longitude'] as num).toDouble() : defaultUserLng;
+    final lat = sanitizeLatitude(json['latitude']);
+    final lng = sanitizeLongitude(json['longitude']);
+    final safeUserLat = sanitizeLatitude(userLat);
+    final safeUserLng = sanitizeLongitude(userLng);
 
     return CoffeeShop(
       id: json['id']?.toString() ?? '',
@@ -40,10 +42,10 @@ class CoffeeShop {
       address: json['address']?.toString() ?? '',
       latitude: lat,
       longitude: lng,
-      rating: json['rating'] != null ? (json['rating'] as num).toDouble() : 0.0,
-      price: json['price'] != null ? (json['price'] as num).toInt() : 0,
+      rating: parseFiniteDouble(json['rating'], fallback: 0.0),
+      price: parseFiniteDouble(json['price'], fallback: 0.0).toInt(),
       facilities: Map<String, bool>.from(json['facilities'] ?? {}),
-      distance: calculateDistance(userLat, userLng, lat, lng),
+      distance: calculateDistance(safeUserLat, safeUserLng, lat, lng),
       imageUrl: json['image_url']?.toString(),
     );
   }
