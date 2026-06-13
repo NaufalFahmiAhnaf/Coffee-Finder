@@ -6,7 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:mobile_coffee/core/constants.dart';
+import 'package:mobile_coffee/core/location_utils.dart';
 import 'package:mobile_coffee/features/auth/screens/login_screen.dart';
+import 'package:mobile_coffee/features/coffee/screens/add_cafe_screen.dart';
 import 'package:mobile_coffee/models/coffee_shop.dart';
 import 'package:mobile_coffee/services/coffee_shop_service.dart';
 import 'package:mobile_coffee/shared/widgets/coffee_app_logo.dart';
@@ -25,6 +27,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   List<CoffeeShop> _coffeeShops = [];
   bool _isLoading = true;
+  String? _loadError;
   bool _showMap = true;
   String _query = '';
   int? _maxPrice;
@@ -64,21 +67,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
         permission = await Geolocator.requestPermission();
       }
 
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         setState(() => _isLoading = false);
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      final lat = sanitizeLatitude(position.latitude);
+      final lng = sanitizeLongitude(position.longitude);
+
+      if (!mounted) return;
 
       setState(() {
-        _userLat = position.latitude;
-        _userLng = position.longitude;
+        _userLat = lat;
+        _userLng = lng;
       });
 
-      _mapController.move(LatLng(position.latitude, position.longitude), 15);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        try {
+          _mapController.move(LatLng(lat, lng), 15);
+        } catch (error) {
+          debugPrint('Map controller is not ready: $error');
+        }
+      });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       debugPrint('Error getting user location: $e');
     }
   }
@@ -98,6 +118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (mounted) {
       setState(() {
         _coffeeShops = shops;
+        _loadError = shops.isEmpty ? _coffeeShopService.lastError : null;
         _isLoading = false;
       });
     }
@@ -108,7 +129,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await prefs.remove('coffee_user');
 
     if (mounted) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginScreen()));
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
     }
   }
 
@@ -124,13 +148,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _openGoogleMaps(String name, String address) async {
-    final query = Uri.encodeComponent('$name $address');
-    final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
+    final query = '$name $address';
 
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tidak dapat membuka Google Maps')));
+    final Uri googleMapsUrl = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': query,
+    });
+
+    debugPrint('Opening Google Maps: $googleMapsUrl');
+
+    try {
+      final bool opened = await launchUrl(
+        googleMapsUrl,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tidak dapat membuka Google Maps')),
+        );
+      }
+    } catch (error) {
+      debugPrint('Error opening Google Maps: $error');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal membuka Google Maps: $error')),
+        );
+      }
     }
   }
 
@@ -141,13 +186,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Container(
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(child: Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)))),
+              Center(
+                child: Container(
+                  width: 50,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
               const SizedBox(height: 20),
               ClipRRect(
                 borderRadius: BorderRadius.circular(20),
@@ -155,9 +212,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   height: 200,
                   width: double.infinity,
                   child: Image.network(
-                    shop.imageUrl ?? 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=500&q=80',
+                    shop.imageUrl ??
+                        'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=500&q=80',
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(color: Colors.orange[50], child: Icon(Icons.coffee, size: 64, color: Colors.orange[800])),
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: Colors.orange[50],
+                      child: Icon(
+                        Icons.coffee,
+                        size: 64,
+                        color: Colors.orange[800],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -165,36 +230,96 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(child: Text(shop.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900))),
+                  Expanded(
+                    child: Text(
+                      shop.name,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.amber[100], borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.amber[100],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Row(
                       children: [
                         const Icon(Icons.star, color: Colors.amber, size: 18),
                         const SizedBox(width: 4),
-                        Text(shop.rating.toString(), style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber[900])),
+                        Text(
+                          shop.rating.toString(),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber[900],
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              Text(shop.address, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+              Text(
+                shop.address,
+                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+              ),
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 8),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                Text('Harga Rata-rata:', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.bold)),
-                Text('Rp ${shop.price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}', style: TextStyle(color: Colors.orange[800], fontWeight: FontWeight.w900, fontSize: 16)),
-              ]),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Harga Rata-rata:',
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'Rp ${shop.price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}',
+                    style: TextStyle(
+                      color: Colors.orange[800],
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                Text('Jarak dari Anda:', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.bold)),
-                Text('${shop.distance.toStringAsFixed(1)} km', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              ]),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Jarak dari Anda:',
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '${shop.distance.toStringAsFixed(1)} km',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
-              Text('Fasilitas Tersedia:', style: TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w900)),
+              Text(
+                'Fasilitas Tersedia:',
+                style: TextStyle(
+                  color: Colors.grey[800],
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -203,11 +328,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   final isAvailable = entry.value;
                   if (!isAvailable) return const SizedBox.shrink();
                   return Chip(
-                    avatar: Icon(facilityIcons[entry.key] ?? Icons.check, size: 16, color: Colors.orange[800]),
+                    avatar: Icon(
+                      facilityIcons[entry.key] ?? Icons.check,
+                      size: 16,
+                      color: Colors.orange[800],
+                    ),
                     label: Text(facilityLabels[entry.key] ?? entry.key),
                     backgroundColor: Colors.orange[50],
                     side: BorderSide.none,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   );
                 }).toList(),
               ),
@@ -221,8 +352,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _openGoogleMaps(shop.name, shop.address);
                   },
                   icon: const Icon(Icons.map, color: Colors.white),
-                  label: const Text('Buka di Google Maps', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[900], foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                  label: const Text(
+                    'Buka di Google Maps',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[900],
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -238,21 +378,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.orange[800]!, Colors.amber[600]!]), borderRadius: BorderRadius.circular(24)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Halo, ${widget.username}! 👋', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 4),
-        const Text('Yuk temukan tempat ngopi terbaik hari ini!', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
-      ]),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.orange[800]!, Colors.amber[600]!],
+        ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Halo, ${widget.username}! 👋',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Yuk temukan tempat ngopi terbaik hari ini!',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildFiltersSection({required bool isWide}) { 
+  Widget _buildFiltersSection({required bool isWide}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: isWide
-          ? Row(children: [Expanded(flex: 3, child: _buildSearchField()), const SizedBox(width: 12), Expanded(flex: 2, child: _buildPriceField()), const SizedBox(width: 12), Expanded(flex: 2, child: _buildSortDropdown()), const SizedBox(width: 12), _buildMapToggleButton()])
-          : Column(children: [_buildSearchField(), const SizedBox(height: 12), Row(children: [Expanded(flex: 3, child: _buildPriceField()), const SizedBox(width: 8), Expanded(flex: 4, child: _buildSortDropdown()), const SizedBox(width: 8), _buildMapToggleButton()])]),
+          ? Row(
+              children: [
+                Expanded(flex: 3, child: _buildSearchField()),
+                const SizedBox(width: 12),
+                Expanded(flex: 2, child: _buildPriceField()),
+                const SizedBox(width: 12),
+                Expanded(flex: 2, child: _buildSortDropdown()),
+                const SizedBox(width: 12),
+                _buildMapToggleButton(),
+              ],
+            )
+          : Column(
+              children: [
+                _buildSearchField(),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(flex: 3, child: _buildPriceField()),
+                    const SizedBox(width: 8),
+                    Expanded(flex: 4, child: _buildSortDropdown()),
+                    const SizedBox(width: 8),
+                    _buildMapToggleButton(),
+                  ],
+                ),
+              ],
+            ),
     );
   }
 
@@ -262,10 +448,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: InputDecoration(
         hintText: 'Cari nama kafe atau alamat...',
         prefixIcon: const Icon(Icons.search),
-        suffixIcon: _query.isNotEmpty ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchController.clear(); setState(() => _query = ''); _fetchCoffeeShops(); }) : null,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey[300]!)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey[200]!)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.orange[800]!, width: 2)),
+        suffixIcon: _query.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                  _fetchCoffeeShops();
+                },
+              )
+            : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.grey[200]!),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.orange[800]!, width: 2),
+        ),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -282,7 +486,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: InputDecoration(
         hintText: 'Harga Max (e.g. 30000)',
         prefixIcon: const Icon(Icons.payments, size: 20),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey[300]!),
+        ),
         contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
         filled: true,
         fillColor: Colors.white,
@@ -295,13 +502,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildSortDropdown() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(12), color: Colors.white),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[300]!),
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+      ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _sortBy,
           isExpanded: true,
           icon: const Icon(Icons.arrow_drop_down, color: Colors.orange),
-          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13),
+          style: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
           onChanged: (String? newValue) {
             if (newValue != null) {
               setState(() => _sortBy = newValue);
@@ -321,8 +536,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildMapToggleButton() {
     return Container(
-      decoration: BoxDecoration(color: _showMap ? Colors.grey[900] : Colors.orange[800], borderRadius: BorderRadius.circular(12)),
-      child: IconButton(icon: Icon(_showMap ? Icons.grid_view : Icons.map, color: Colors.white), onPressed: () => setState(() => _showMap = !_showMap), tooltip: _showMap ? 'Sembunyikan Peta' : 'Tampilkan Peta'),
+      decoration: BoxDecoration(
+        color: _showMap ? Colors.grey[900] : Colors.orange[800],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: IconButton(
+        icon: Icon(_showMap ? Icons.grid_view : Icons.map, color: Colors.white),
+        onPressed: () => setState(() => _showMap = !_showMap),
+        tooltip: _showMap ? 'Sembunyikan Peta' : 'Tampilkan Peta',
+      ),
     );
   }
 
@@ -337,14 +559,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return Padding(
             padding: const EdgeInsets.only(right: 8.0, top: 4.0, bottom: 4.0),
             child: FilterChip(
-              avatar: Icon(facilityIcons[facility], size: 16, color: isSelected ? Colors.white : Colors.grey[600]),
-              label: Text(facilityLabels[facility] ?? facility, style: TextStyle(color: isSelected ? Colors.white : Colors.grey[800], fontWeight: FontWeight.bold, fontSize: 12)),
+              avatar: Icon(
+                facilityIcons[facility],
+                size: 16,
+                color: isSelected ? Colors.white : Colors.grey[600],
+              ),
+              label: Text(
+                facilityLabels[facility] ?? facility,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.grey[800],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
               selected: isSelected,
               selectedColor: Colors.orange[800],
               checkmarkColor: Colors.white,
               backgroundColor: Colors.white,
               side: BorderSide(color: Colors.grey[200]!),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               onSelected: (_) => _toggleFacility(facility),
             ),
           );
@@ -370,18 +605,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(padding: const EdgeInsets.only(left: 4.0, bottom: 12.0), child: Text('Rekomendasi Kafe', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.grey[800]))),
-        crossAxisCount == 1
-            ? Column(children: _coffeeShops.map((shop) => _buildCafeCard(shop, isGrid: false)).toList())
-            : GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: crossAxisCount, crossAxisSpacing: 16, mainAxisSpacing: 16, childAspectRatio: childAspectRatio),
-                itemCount: _coffeeShops.length,
-                itemBuilder: (context, index) => _buildCafeCard(_coffeeShops[index], isGrid: true),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4.0, bottom: 12.0),
+            child: Text(
+              'Rekomendasi Kafe',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: Colors.grey[800],
               ),
-      ]),
+            ),
+          ),
+          if (_coffeeShops.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Text(
+                _loadError ??
+                    'Belum ada kafe yang sesuai dengan pencarian atau filter saat ini.',
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else if (crossAxisCount == 1)
+            Column(
+              children: _coffeeShops
+                  .map((shop) => _buildCafeCard(shop, isGrid: false))
+                  .toList(),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: childAspectRatio,
+              ),
+              itemCount: _coffeeShops.length,
+              itemBuilder: (context, index) =>
+                  _buildCafeCard(_coffeeShops[index], isGrid: true),
+            ),
+        ],
+      ),
     );
   }
 
@@ -394,91 +671,372 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: () => _showCafeDetailsSheet(shop),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Stack(children: [
-              ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), child: SizedBox(height: 140, width: double.infinity, child: Image.network(shop.imageUrl ?? 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=500&q=80', fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(color: Colors.orange[50], child: Icon(Icons.coffee, size: 64, color: Colors.orange[800]))))),
-              Positioned(top: 12, right: 12, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)]), child: Row(children: [const Icon(Icons.star, color: Colors.amber, size: 16), const SizedBox(width: 4), Text(shop.rating.toString(), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13))]))),
-            ]),
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(shop.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 2),
-                Text(shop.address, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                const SizedBox(height: 8),
-                Row(children: [
-                  Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.orange[50], border: Border.all(color: Colors.orange[100]!), borderRadius: BorderRadius.circular(8)), child: Text('Rp ${(shop.price / 1000).toStringAsFixed(0)}k', style: TextStyle(color: Colors.orange[800], fontWeight: FontWeight.bold, fontSize: 11))),
-                  const SizedBox(width: 8),
-                  Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.grey[50], border: Border.all(color: Colors.grey[200]!), borderRadius: BorderRadius.circular(8)), child: Row(children: [Icon(Icons.navigation_outlined, size: 12, color: Colors.orange[800]), const SizedBox(width: 2), Text('${shop.distance.toStringAsFixed(1)} km', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.bold, fontSize: 11))])),
-                ]),
-                const SizedBox(height: 8),
-                Row(children: shop.facilities.entries.where((entry) => entry.value && facilityIcons.containsKey(entry.key)).take(4).map((entry) => Padding(padding: const EdgeInsets.only(right: 6.0), child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: Colors.grey[50], border: Border.all(color: Colors.grey[100]!), borderRadius: BorderRadius.circular(6)), child: Icon(facilityIcons[entry.key], size: 12, color: Colors.grey[600])))).toList()),
-                const SizedBox(height: 12),
-                SizedBox(width: double.infinity, height: 38, child: OutlinedButton.icon(onPressed: () => _openGoogleMaps(shop.name, shop.address), icon: Icon(Icons.map_outlined, color: Colors.orange[800], size: 16), label: const Text('Google Maps', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.orange[800]!), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))))),
-              ]),
-            ),
-          ]),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                    child: SizedBox(
+                      height: 140,
+                      width: double.infinity,
+                      child: Image.network(
+                        shop.imageUrl ??
+                            'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=500&q=80',
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: Colors.orange[50],
+                          child: Icon(
+                            Icons.coffee,
+                            size: 64,
+                            color: Colors.orange[800],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 4),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.star, color: Colors.amber, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            shop.rating.toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      shop.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      shop.address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[50],
+                            border: Border.all(color: Colors.orange[100]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Rp ${(shop.price / 1000).toStringAsFixed(0)}k',
+                            style: TextStyle(
+                              color: Colors.orange[800],
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50],
+                            border: Border.all(color: Colors.grey[200]!),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.navigation_outlined,
+                                size: 12,
+                                color: Colors.orange[800],
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                '${shop.distance.toStringAsFixed(1)} km',
+                                style: TextStyle(
+                                  color: Colors.grey[700],
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: shop.facilities.entries
+                          .where(
+                            (entry) =>
+                                entry.value &&
+                                facilityIcons.containsKey(entry.key),
+                          )
+                          .take(4)
+                          .map(
+                            (entry) => Padding(
+                              padding: const EdgeInsets.only(right: 6.0),
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[50],
+                                  border: Border.all(color: Colors.grey[100]!),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Icon(
+                                  facilityIcons[entry.key],
+                                  size: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 38,
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _openGoogleMaps(shop.name, shop.address),
+                        icon: Icon(
+                          Icons.map_outlined,
+                          color: Colors.orange[800],
+                          size: 16,
+                        ),
+                        label: const Text(
+                          'Google Maps',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.orange[800]!),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildMapView() {
+    final markers = _coffeeShops
+        .where((shop) => isValidCoordinate(shop.latitude, shop.longitude))
+        .map(
+          (shop) => Marker(
+            point: LatLng(shop.latitude, shop.longitude),
+            width: 45,
+            height: 45,
+            child: GestureDetector(
+              onTap: () => _showCafeDetailsSheet(shop),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Icon(Icons.location_on, color: Colors.blue[700], size: 38),
+                  Positioned(
+                    top: 5,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.local_cafe,
+                        color: Colors.blue[700],
+                        size: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        )
+        .toList();
+
     return FlutterMap(
       mapController: _mapController,
-      options: MapOptions(initialCenter: LatLng(_userLat, _userLng), initialZoom: 13.0),
+      options: MapOptions(
+        initialCenter: LatLng(_userLat, _userLng),
+        initialZoom: 13.0,
+      ),
       children: [
-        TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.coffetrack.app'),
-        MarkerLayer(markers: [
-          Marker(point: LatLng(_userLat, _userLng), width: 45, height: 45, child: Container(decoration: BoxDecoration(color: Colors.blue.withValues(alpha: 0.2), shape: BoxShape.circle, border: Border.all(color: Colors.blue, width: 2)), child: const Center(child: Icon(Icons.my_location, color: Colors.blue, size: 20)))),
-          ..._coffeeShops.map((shop) => Marker(point: LatLng(shop.latitude, shop.longitude), width: 45, height: 45, child: GestureDetector(onTap: () => _showCafeDetailsSheet(shop), child: Stack(alignment: Alignment.center, children: [Icon(Icons.location_on, color: Colors.blue[700], size: 38), Positioned(top: 5, child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle), child: Icon(Icons.local_cafe, color: Colors.blue[700], size: 11)))])))),
-        ]),
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.coffetrack.app',
+        ),
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: LatLng(_userLat, _userLng),
+              width: 45,
+              height: 45,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.blue, width: 2),
+                ),
+                child: const Center(
+                  child: Icon(Icons.my_location, color: Colors.blue, size: 20),
+                ),
+              ),
+            ),
+            ...markers,
+          ],
+        ),
       ],
     );
   }
 
   Widget _buildMobileDashboard(BoxConstraints constraints) {
-    return ListView(children: [
-      _buildWelcomeCard(),
-      _buildFiltersSection(isWide: false),
-      _buildFacilitiesSection(),
-      const SizedBox(height: 8),
-      if (_showMap) Container(height: 250, margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: ClipRRect(borderRadius: BorderRadius.circular(20), child: _buildMapView())),
-      _buildCardLayout(constraints.maxWidth),
-    ]);
+    return ListView(
+      children: [
+        _buildWelcomeCard(),
+        _buildFiltersSection(isWide: false),
+        _buildFacilitiesSection(),
+        const SizedBox(height: 8),
+        if (_showMap)
+          Container(
+            height: 250,
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: _buildMapView(),
+            ),
+          ),
+        _buildCardLayout(constraints.maxWidth),
+      ],
+    );
   }
 
   Widget _buildWideDashboard(BoxConstraints constraints) {
-    return ListView(children: [
-      _buildWelcomeCard(),
-      _buildFiltersSection(isWide: true),
-      _buildFacilitiesSection(),
-      const SizedBox(height: 8),
-      if (_showMap) Container(height: 400, margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), child: ClipRRect(borderRadius: BorderRadius.circular(24), child: _buildMapView())),
-      _buildCardLayout(constraints.maxWidth),
-    ]);
+    return ListView(
+      children: [
+        _buildWelcomeCard(),
+        _buildFiltersSection(isWide: true),
+        _buildFacilitiesSection(),
+        const SizedBox(height: 8),
+        if (_showMap)
+          Container(
+            height: 400,
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: _buildMapView(),
+            ),
+          ),
+        _buildCardLayout(constraints.maxWidth),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(children: [
-          const CoffeeAppLogo(size: 20),
-          const SizedBox(width: 8),
-          const Text('CoffeeTrack', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
-        ]),
+        title: Row(
+          children: [
+            const CoffeeAppLogo(size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'CoffeeTrack',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: _handleLogout, tooltip: 'Logout'),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _handleLogout,
+            tooltip: 'Logout',
+          ),
           const SizedBox(width: 8),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AddCafeScreen(username: widget.username),
+            ),
+          );
+          // Refresh list in case the admin approved something while user was away
+          if (mounted) _fetchCoffeeShops();
+        },
+        backgroundColor: Colors.orange[800],
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_location_alt_rounded),
+        label: const Text(
+          'Add Cafe',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth > 800;
           return _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : RefreshIndicator(onRefresh: _fetchCoffeeShops, child: isWide ? _buildWideDashboard(constraints) : _buildMobileDashboard(constraints));
+              : RefreshIndicator(
+                  onRefresh: _fetchCoffeeShops,
+                  child: isWide
+                      ? _buildWideDashboard(constraints)
+                      : _buildMobileDashboard(constraints),
+                );
         },
       ),
     );

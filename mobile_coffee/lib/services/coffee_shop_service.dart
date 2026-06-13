@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:mobile_coffee/core/constants.dart';
+import 'package:mobile_coffee/core/location_utils.dart';
 import 'package:mobile_coffee/models/coffee_shop.dart';
 
 class CoffeeShopService {
+  String? lastError;
 
   Future<List<CoffeeShop>> fetchCoffeeShops({
     required double userLat,
@@ -16,42 +18,65 @@ class CoffeeShopService {
     List<String> selectedFacilities = const [],
     String sortBy = 'rating',
   }) async {
-    try {
-      final queryParams = <String, String>{
-        'lat': userLat.toString(),
-        'lng': userLng.toString(),
-        if (query.isNotEmpty) 'q': query,
-        if (maxPrice != null && maxPrice > 0) 'max_price': maxPrice.toString(),
-        if (sortBy != 'nearest') 'sort_by': sortBy,
-      };
+    lastError = null;
+    final safeUserLat = sanitizeLatitude(userLat);
+    final safeUserLng = sanitizeLongitude(userLng);
+    final queryParams = <String, String>{
+      'lat': safeUserLat.toString(),
+      'lng': safeUserLng.toString(),
+      if (query.isNotEmpty) 'q': query,
+      if (maxPrice != null && maxPrice > 0) 'max_price': maxPrice.toString(),
+      if (sortBy != 'nearest') 'sort_by': sortBy,
+    };
 
-      final paramsList = <String>[];
-      queryParams.forEach((key, value) {
-        paramsList.add('$key=${Uri.encodeQueryComponent(value)}');
-      });
+    final paramsList = <String>[];
+    queryParams.forEach((key, value) {
+      paramsList.add('$key=${Uri.encodeQueryComponent(value)}');
+    });
 
-      for (final facility in selectedFacilities) {
-        paramsList.add('facilities[]=${Uri.encodeQueryComponent(facility)}');
-      }
-
-      final uri = Uri.parse('${getBaseUrl()}/api/coffee-shops?${paramsList.join('&')}');
-      final response = await http.get(uri).timeout(const Duration(seconds: 4));
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = json.decode(response.body);
-        final List<dynamic> list = data['data'] ?? [];
-        var shops = list.map((item) => CoffeeShop.fromJson(item, userLat: userLat, userLng: userLng)).toList();
-
-        if (sortBy == 'nearest') {
-          shops.sort((a, b) => a.distance.compareTo(b.distance));
-        }
-
-        return shops;
-      }
-    } catch (e) {
-      debugPrint('API error: $e. Backend data is unavailable.');
+    for (final facility in selectedFacilities) {
+      paramsList.add('facilities[]=${Uri.encodeQueryComponent(facility)}');
     }
 
+    final queryString = paramsList.join('&');
+
+    for (final baseUrl in getBaseUrls()) {
+      try {
+        final uri = Uri.parse('$baseUrl/api/coffee-shops?$queryString');
+        final response = await http
+            .get(uri)
+            .timeout(const Duration(seconds: 4));
+
+        if (response.statusCode == 200) {
+          final Map<String, dynamic> data = json.decode(response.body);
+          final List<dynamic> list = data['data'] ?? [];
+          var shops = list
+              .whereType<Map<String, dynamic>>()
+              .map(
+                (item) => CoffeeShop.fromJson(
+                  item,
+                  userLat: safeUserLat,
+                  userLng: safeUserLng,
+                ),
+              )
+              .toList();
+
+          if (sortBy == 'nearest') {
+            shops.sort((a, b) => a.distance.compareTo(b.distance));
+          }
+
+          return shops;
+        }
+        lastError = 'Server returned ${response.statusCode} from $baseUrl';
+        debugPrint('API error: ${response.statusCode} from ${uri.toString()}');
+      } catch (e) {
+        lastError = 'Cannot connect to $baseUrl';
+        debugPrint('API error from $baseUrl: $e');
+      }
+    }
+
+    lastError = 'Cannot load cafes. Tried: ${getBaseUrls().join(', ')}';
+    debugPrint('Backend data is unavailable. $lastError');
     return [];
   }
 }

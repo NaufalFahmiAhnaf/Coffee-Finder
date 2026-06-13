@@ -1,23 +1,23 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { MapPin, ArrowRight, Loader2 } from 'lucide-react';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import { MapPin, ArrowRight, Loader2 } from "lucide-react";
 
 export default function Landing() {
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
 
   const handleEnter = (e) => {
     e.preventDefault();
     if (!username) {
-        setErrorMsg('Please enter your username');
-        return;
+      setErrorMsg("Please enter your username");
+      return;
     }
-    
+
     setLoading(true);
-    setErrorMsg('');
+    setErrorMsg("");
 
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -25,24 +25,24 @@ export default function Landing() {
           setLoading(false);
           const coords = {
             lat: position.coords.latitude,
-            lng: position.coords.longitude
+            lng: position.coords.longitude,
           };
-          localStorage.setItem('coffee_user', username);
-          localStorage.setItem('coffee_coords', JSON.stringify(coords));
-          navigate('/dashboard');
+          localStorage.setItem("coffee_user", username);
+          localStorage.setItem("coffee_coords", JSON.stringify(coords));
+          navigate("/dashboard");
         },
         (error) => {
           setLoading(false);
           // Default Surabaya
           const defaultCoords = { lat: -7.250445, lng: 112.768845 };
-          localStorage.setItem('coffee_user', username);
-          localStorage.setItem('coffee_coords', JSON.stringify(defaultCoords));
-          navigate('/dashboard');
-        }
+          localStorage.setItem("coffee_user", username);
+          localStorage.setItem("coffee_coords", JSON.stringify(defaultCoords));
+          navigate("/dashboard");
+        },
       );
     } else {
       setLoading(false);
-      setErrorMsg('Geolocation is not supported by your browser.');
+      setErrorMsg("Geolocation is not supported by your browser.");
     }
   };
 
@@ -50,21 +50,21 @@ export default function Landing() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/20 rounded-full blur-[100px]" />
       <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-primary/20 rounded-full blur-[100px]" />
-      
-      <motion.div 
+
+      <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
         className="z-10 w-full max-w-md px-6"
       >
         <div className="text-center mb-10">
-          <motion.div 
+          <motion.div
             initial={{ scale: 0.8 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.3, type: "spring" }}
             className="w-20 h-20 bg-surface rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-xl border border-gray-100"
           >
-             <MapPin className="text-primary w-10 h-10" />
+            <MapPin className="text-primary w-10 h-10" />
           </motion.div>
           <h1 className="text-4xl font-bold text-textMain mb-3 tracking-tight">
             Coffee<span className="text-primary">Track</span>
@@ -74,7 +74,10 @@ export default function Landing() {
           </p>
         </div>
 
-        <form onSubmit={handleEnter} className="space-y-6 bg-surface p-8 rounded-[2rem] border border-gray-100 shadow-2xl">
+        <form
+          onSubmit={handleEnter}
+          className="space-y-6 bg-surface p-8 rounded-[2rem] border border-gray-100 shadow-2xl"
+        >
           <div>
             <label className="block text-xs font-bold text-textMuted uppercase tracking-wider mb-2">
               How should we call you?
@@ -89,9 +92,9 @@ export default function Landing() {
           </div>
 
           {errorMsg && (
-            <motion.p 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               className="text-red-500 text-sm text-center font-medium"
             >
               {errorMsg}
