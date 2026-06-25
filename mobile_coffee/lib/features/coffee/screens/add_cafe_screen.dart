@@ -80,7 +80,7 @@ class _AddCafeScreenState extends State<AddCafeScreen> {
 
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-      );
+      ).timeout(const Duration(seconds: 4));
 
       if (!mounted) return;
       setState(() {

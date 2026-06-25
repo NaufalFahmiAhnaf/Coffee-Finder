@@ -11,6 +11,8 @@ import 'package:mobile_coffee/features/auth/screens/login_screen.dart';
 import 'package:mobile_coffee/features/coffee/screens/add_cafe_screen.dart';
 import 'package:mobile_coffee/models/coffee_shop.dart';
 import 'package:mobile_coffee/services/coffee_shop_service.dart';
+import 'package:mobile_coffee/services/notification_service.dart';
+import 'package:mobile_coffee/services/coffee_buddy_service.dart';
 import 'package:mobile_coffee/shared/widgets/coffee_app_logo.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -48,6 +50,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _initializeDashboard() async {
+    // Initialize and start CoffeeBuddy notification radar
+    try {
+      await NotificationService.initialize();
+      await CoffeeBuddyService().startTracking();
+    } catch (e) {
+      debugPrint('CoffeeBuddy: Error starting service: $e');
+    }
+
     await _loadUserLocation();
     if (mounted) {
       await _fetchCoffeeShops();
@@ -77,7 +87,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
-      );
+      ).timeout(const Duration(seconds: 4));
       final lat = sanitizeLatitude(position.latitude);
       final lng = sanitizeLongitude(position.longitude);
 
@@ -147,13 +157,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _fetchCoffeeShops();
   }
 
-  Future<void> _openGoogleMaps(String name, String address) async {
-    final query = '$name $address';
-
-    final Uri googleMapsUrl = Uri.https('www.google.com', '/maps/search/', {
-      'api': '1',
-      'query': query,
-    });
+  Future<void> _openGoogleMaps(double latitude, double longitude) async {
+    final Uri googleMapsUrl = Uri.parse('https://www.google.com/maps/search/?api=1&query=$latitude,$longitude');
 
     debugPrint('Opening Google Maps: $googleMapsUrl');
 
@@ -349,7 +354,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
-                    _openGoogleMaps(shop.name, shop.address);
+                    _openGoogleMaps(shop.latitude, shop.longitude);
                   },
                   icon: const Icon(Icons.map, color: Colors.white),
                   label: const Text(
@@ -840,7 +845,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       height: 38,
                       child: OutlinedButton.icon(
                         onPressed: () =>
-                            _openGoogleMaps(shop.name, shop.address),
+                            _openGoogleMaps(shop.latitude, shop.longitude),
                         icon: Icon(
                           Icons.map_outlined,
                           color: Colors.orange[800],

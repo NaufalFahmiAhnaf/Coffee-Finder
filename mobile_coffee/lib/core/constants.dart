@@ -18,7 +18,7 @@ List<String> getBaseUrls() {
     return const ['http://127.0.0.1:8000'];
   }
 
-  return const ['http://127.0.0.1:8000', 'http://10.0.2.2:8000'];
+  return const ['http://127.0.0.1:8000', 'http://10.0.2.2:8000', 'http://192.168.1.3:8000'];
 }
 
 String _cleanBaseUrl(String value) {

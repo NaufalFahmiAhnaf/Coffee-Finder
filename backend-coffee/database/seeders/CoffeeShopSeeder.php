@@ -9,6 +9,7 @@ class CoffeeShopSeeder extends Seeder
 {
     public function run(): void
     {
+        DB::table('coffee_shops')->truncate();
         DB::unprepared(file_get_contents(database_path('cafe_data.sql')));
     }
 }

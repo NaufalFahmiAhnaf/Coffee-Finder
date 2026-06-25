@@ -7,6 +7,8 @@ import 'package:mobile_coffee/core/constants.dart';
 import 'package:mobile_coffee/core/location_utils.dart';
 import 'package:mobile_coffee/models/coffee_shop.dart';
 
+import 'package:mobile_coffee/core/fallback_data.dart';
+
 class CoffeeShopService {
   String? lastError;
 
@@ -75,8 +77,46 @@ class CoffeeShopService {
       }
     }
 
-    lastError = 'Cannot load cafes. Tried: ${getBaseUrls().join(', ')}';
-    debugPrint('Backend data is unavailable. $lastError');
-    return [];
+    // If all API calls failed, load local fallback data to ensure the app is fully functional
+    debugPrint('CoffeeShopService: API connection failed. Loading local fallback data.');
+    
+    var fallbackShops = fallbackCoffeeShops.map((item) {
+      return CoffeeShop.fromJson(
+        item,
+        userLat: safeUserLat,
+        userLng: safeUserLng,
+      );
+    }).toList();
+
+    // Apply client-side search filtering
+    if (query.isNotEmpty) {
+      final lowercaseQuery = query.toLowerCase();
+      fallbackShops = fallbackShops.where((shop) {
+        return shop.name.toLowerCase().contains(lowercaseQuery) ||
+               shop.address.toLowerCase().contains(lowercaseQuery);
+      }).toList();
+    }
+
+    // Apply price filtering
+    if (maxPrice != null && maxPrice > 0) {
+      fallbackShops = fallbackShops.where((shop) => shop.price <= maxPrice).toList();
+    }
+
+    // Apply facility filtering
+    if (selectedFacilities.isNotEmpty) {
+      fallbackShops = fallbackShops.where((shop) {
+        return selectedFacilities.every((facility) => shop.facilities[facility] == true);
+      }).toList();
+    }
+
+    // Apply sorting
+    if (sortBy == 'nearest') {
+      fallbackShops.sort((a, b) => a.distance.compareTo(b.distance));
+    } else if (sortBy == 'rating') {
+      fallbackShops.sort((a, b) => b.rating.compareTo(a.rating));
+    }
+
+    lastError = 'Gagal terhubung ke server. Menampilkan data offline.';
+    return fallbackShops;
   }
 }

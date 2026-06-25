@@ -291,8 +291,8 @@ export default function Dashboard() {
     }
   };
 
-  const openGoogleMaps = (name, address) => {
-    const query = encodeURIComponent(`${name} ${address}`);
+  const openGoogleMaps = (latitude, longitude) => {
+    const query = encodeURIComponent(`${latitude},${longitude}`);
     const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
     window.open(url, "_blank");
   };
@@ -848,7 +848,7 @@ export default function Dashboard() {
                           <button
                             onClick={(e) => {
                               e.preventDefault();
-                              openGoogleMaps(shop.name, shop.address);
+                              openGoogleMaps(shop.latitude, shop.longitude);
                             }}
                             className="mt-3 w-full bg-primary hover:bg-primary-hover text-white rounded-lg p-2 text-xs font-bold border-none cursor-pointer transition-colors"
                           >
@@ -953,7 +953,7 @@ export default function Dashboard() {
                     </div>
 
                     <button
-                      onClick={() => openGoogleMaps(shop.name, shop.address)}
+                      onClick={() => openGoogleMaps(shop.latitude, shop.longitude)}
                       className="w-full bg-textMain hover:bg-black text-white rounded-xl py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors mt-auto shadow-md"
                     >
                       <MapPin className="w-4 h-4 text-primary" />
