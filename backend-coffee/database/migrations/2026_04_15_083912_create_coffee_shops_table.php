@@ -6,30 +6,23 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
-    public function up()
+    public function up(): void
     {
         Schema::create('coffee_shops', function (Blueprint $table) {
-
             $table->id();
             $table->string('name');
             $table->text('description')->nullable();
             $table->string('address')->nullable();
-            $table->integer('price'); // average price
-            $table->float('rating');
+            $table->unsignedInteger('price');
+            $table->decimal('rating', 2, 1);
             $table->string('image_url')->nullable();
-            $table->double('latitude', 10, 8);
-            $table->double('longitude', 11, 8);
-            $table->json('facilities')->nullable(); // json format: {"wifi": true, "outdoor": true, "ac": true, "sockets": true, "smoking_room": true}
+            $table->decimal('latitude', 10, 7);
+            $table->decimal('longitude', 10, 7);
+            $table->json('facilities')->nullable();
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('coffee_shops');

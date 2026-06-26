@@ -1,0 +1,17 @@
+.git
+.DS_Store
+README.md
+
+backend-coffee/.env
+backend-coffee/vendor
+backend-coffee/node_modules
+backend-coffee/database/*.sqlite
+backend-coffee/storage/logs/*.log
+backend-coffee/.phpunit.result.cache
+
+frontend-coffee/.env
+frontend-coffee/node_modules
+frontend-coffee/dist
+
+mobile_coffee/.dart_tool
+mobile_coffee/build
