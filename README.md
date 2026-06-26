@@ -55,11 +55,17 @@ Seed data lives in `backend-coffee/database/cafe_data.json` and is loaded by the
 **How to run emulator**
 
 ```bash
-cd .../mobile_coffee
+cd /mobile_coffee
 [1] emulator -avd test_device
 [2] adb devices       # To check device availability
 [3] flutter run
+```
 
+**How to clean flutter project and download dependencies**
+
+```bash
+flutter clean
+flutter pub get
 ```
 
 **How to run on a real device**
