@@ -593,29 +593,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     runSpacing: 8,
                     children: facilityIcons.keys.map((facility) {
                       final isSelected = tempSelectedFacilities.contains(facility);
-                      return FilterChip(
-                        avatar: Icon(
-                          facilityIcons[facility],
-                          size: 16,
-                          color: isSelected ? Colors.white : Colors.grey[600],
-                        ),
-                        label: Text(
-                          facilityLabels[facility] ?? facility,
-                          style: TextStyle(
-                            color: isSelected ? Colors.white : Colors.grey[800],
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                        selected: isSelected,
-                        selectedColor: Colors.orange[800],
-                        checkmarkColor: Colors.white,
-                        backgroundColor: Colors.white,
-                        side: BorderSide(color: Colors.grey[200]!),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        onSelected: (_) {
+                      return GestureDetector(
+                        onTap: () {
                           setSheetState(() {
                             if (isSelected) {
                               tempSelectedFacilities.remove(facility);
@@ -624,6 +603,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             }
                           });
                         },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.orange[800] : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? Colors.orange[800]! : Colors.grey[200]!,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                facilityIcons[facility],
+                                size: 16,
+                                color: isSelected ? Colors.white : Colors.grey[600],
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                facilityLabels[facility] ?? facility,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.grey[800],
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       );
                     }).toList(),
                   ),

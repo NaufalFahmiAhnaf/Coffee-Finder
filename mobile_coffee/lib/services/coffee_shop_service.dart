@@ -50,6 +50,7 @@ class CoffeeShopService {
             .timeout(const Duration(seconds: 4));
 
         if (response.statusCode == 200) {
+          lastError = null;
           final Map<String, dynamic> data = json.decode(response.body);
           final List<dynamic> list = data['data'] ?? [];
           var shops = list
