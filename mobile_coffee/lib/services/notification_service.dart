@@ -110,7 +110,7 @@ class NotificationService {
     );
 
     await _notificationsPlugin.initialize(
-      initializationSettings,
+      settings: initializationSettings,
       onDidReceiveNotificationResponse: _onNotificationClick,
       onDidReceiveBackgroundNotificationResponse: backgroundNotificationHandler,
     );
@@ -167,10 +167,10 @@ class NotificationService {
     );
 
     await _notificationsPlugin.show(
-      id,
-      title,
-      body,
-      platformDetails,
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: platformDetails,
       payload: payload,
     );
   }
@@ -210,16 +210,16 @@ class NotificationService {
     );
 
     await _notificationsPlugin.show(
-      id,
-      title,
-      body,
-      platformDetails,
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: platformDetails,
       payload: payload,
     );
   }
 
   // Cancel a notification
   static Future<void> cancel(int id) async {
-    await _notificationsPlugin.cancel(id);
+    await _notificationsPlugin.cancel(id: id);
   }
 }
