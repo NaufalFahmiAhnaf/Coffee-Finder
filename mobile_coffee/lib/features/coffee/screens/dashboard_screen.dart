@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -43,10 +45,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _priceController = TextEditingController();
   final MapController _mapController = MapController();
 
+  Timer? _debounceTimer;
+  String? _offlineMessage;
+
   @override
   void initState() {
     super.initState();
     _initializeDashboard();
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    _priceController.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeDashboard() async {
@@ -83,11 +96,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      ).timeout(const Duration(seconds: 4));
+      Position? position = await Geolocator.getLastKnownPosition();
+      
+      if (position == null) {
+        debugPrint('Location: No last known location. Requesting current position...');
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        ).timeout(const Duration(seconds: 15));
+      } else {
+        debugPrint('Location: Using last known location.');
+      }
+      
       final lat = sanitizeLatitude(position.latitude);
       final lng = sanitizeLongitude(position.longitude);
 
@@ -129,6 +150,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _coffeeShops = shops;
         _loadError = shops.isEmpty ? _coffeeShopService.lastError : null;
+        _offlineMessage = shops.isNotEmpty ? _coffeeShopService.lastError : null;
         _isLoading = false;
       });
     }
@@ -146,15 +168,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _toggleFacility(String facility) {
-    setState(() {
-      if (_selectedFacilities.contains(facility)) {
-        _selectedFacilities.remove(facility);
-      } else {
-        _selectedFacilities.add(facility);
-      }
+  void _debouncedFetch({Duration delay = const Duration(milliseconds: 600)}) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(delay, () {
+      if (mounted) _fetchCoffeeShops();
     });
-    _fetchCoffeeShops();
   }
 
   Future<void> _openGoogleMaps(double latitude, double longitude) async {
@@ -414,36 +432,289 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildFiltersSection({required bool isWide}) {
+  Widget _buildFiltersSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: isWide
-          ? Row(
-              children: [
-                Expanded(flex: 3, child: _buildSearchField()),
-                const SizedBox(width: 12),
-                Expanded(flex: 2, child: _buildPriceField()),
-                const SizedBox(width: 12),
-                Expanded(flex: 2, child: _buildSortDropdown()),
-                const SizedBox(width: 12),
-                _buildMapToggleButton(),
-              ],
-            )
-          : Column(
-              children: [
-                _buildSearchField(),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(flex: 3, child: _buildPriceField()),
-                    const SizedBox(width: 8),
-                    Expanded(flex: 4, child: _buildSortDropdown()),
-                    const SizedBox(width: 8),
-                    _buildMapToggleButton(),
-                  ],
-                ),
-              ],
-            ),
+      child: Row(
+        children: [
+          Expanded(child: _buildSearchField()),
+          const SizedBox(width: 8),
+          _buildFilterButton(),
+          const SizedBox(width: 8),
+          _buildMapToggleButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterButton() {
+    int activeFilterCount = 0;
+    if (_maxPrice != null && _maxPrice! > 0) activeFilterCount++;
+    if (_sortBy != 'rating') activeFilterCount++;
+    activeFilterCount += _selectedFacilities.length;
+
+    final hasActiveFilters = activeFilterCount > 0;
+
+    return Badge(
+      isLabelVisible: hasActiveFilters,
+      label: Text(activeFilterCount.toString()),
+      backgroundColor: Colors.orange[800],
+      child: Container(
+        decoration: BoxDecoration(
+          color: hasActiveFilters ? Colors.orange[50] : Colors.white,
+          border: Border.all(
+            color: hasActiveFilters ? Colors.orange[800]! : Colors.grey[300]!,
+            width: 1.5,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: IconButton(
+          icon: Icon(
+            Icons.tune,
+            color: hasActiveFilters ? Colors.orange[800] : Colors.grey[700],
+          ),
+          onPressed: _showFilterBottomSheet,
+          tooltip: 'Filter Kafe',
+        ),
+      ),
+    );
+  }
+
+  void _showFilterBottomSheet() {
+    List<String> tempSelectedFacilities = List.from(_selectedFacilities);
+    int? tempMaxPrice = _maxPrice;
+    String tempSortBy = _sortBy;
+
+    final tempPriceController = TextEditingController(
+      text: tempMaxPrice != null && tempMaxPrice > 0 ? tempMaxPrice.toString() : '',
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setSheetState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              padding: EdgeInsets.only(
+                top: 20,
+                left: 20,
+                right: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Filter Kafe',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          setSheetState(() {
+                            tempSelectedFacilities.clear();
+                            tempMaxPrice = null;
+                            tempSortBy = 'rating';
+                            tempPriceController.clear();
+                          });
+                        },
+                        child: Text(
+                          'Reset',
+                          style: TextStyle(
+                            color: Colors.orange[800],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Urutkan Berdasarkan',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildSortChip('rating', '⭐ Rating', tempSortBy, (val) {
+                        setSheetState(() => tempSortBy = val);
+                      }),
+                      _buildSortChip('nearest', '📍 Terdekat', tempSortBy, (val) {
+                        setSheetState(() => tempSortBy = val);
+                      }),
+                      _buildSortChip('price_asc', '💵 Termurah', tempSortBy, (val) {
+                        setSheetState(() => tempSortBy = val);
+                      }),
+                      _buildSortChip('price_desc', '💎 Termahal', tempSortBy, (val) {
+                        setSheetState(() => tempSortBy = val);
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Fasilitas Kafe',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: facilityIcons.keys.map((facility) {
+                      final isSelected = tempSelectedFacilities.contains(facility);
+                      return FilterChip(
+                        avatar: Icon(
+                          facilityIcons[facility],
+                          size: 16,
+                          color: isSelected ? Colors.white : Colors.grey[600],
+                        ),
+                        label: Text(
+                          facilityLabels[facility] ?? facility,
+                          style: TextStyle(
+                            color: isSelected ? Colors.white : Colors.grey[800],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        selected: isSelected,
+                        selectedColor: Colors.orange[800],
+                        checkmarkColor: Colors.white,
+                        backgroundColor: Colors.white,
+                        side: BorderSide(color: Colors.grey[200]!),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        onSelected: (_) {
+                          setSheetState(() {
+                            if (isSelected) {
+                              tempSelectedFacilities.remove(facility);
+                            } else {
+                              tempSelectedFacilities.add(facility);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Harga Maksimal (Rupiah)',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: tempPriceController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'Contoh: 30000',
+                      prefixIcon: const Icon(Icons.payments, size: 20),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    onChanged: (val) {
+                      tempMaxPrice = int.tryParse(val.trim());
+                    },
+                  ),
+                  const SizedBox(height: 28),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedFacilities.clear();
+                          _selectedFacilities.addAll(tempSelectedFacilities);
+                          _maxPrice = tempMaxPrice;
+                          _sortBy = tempSortBy;
+                          _priceController.text = tempPriceController.text;
+                        });
+                        Navigator.pop(context);
+                        _fetchCoffeeShops();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange[800],
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 2,
+                      ),
+                      child: const Text(
+                        'Terapkan Filter',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSortChip(String value, String label, String currentSort, Function(String) onSelected) {
+    final isSelected = currentSort == value;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : Colors.grey[800],
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: Colors.orange[800],
+      backgroundColor: Colors.white,
+      side: BorderSide(color: Colors.grey[200]!),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      onSelected: (_) => onSelected(value),
     );
   }
 
@@ -451,12 +722,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return TextField(
       controller: _searchController,
       decoration: InputDecoration(
-        hintText: 'Cari nama kafe atau alamat...',
+        hintText: 'Cari kafe... (cth: "Kofind", "Tanah Kopi")',
         prefixIcon: const Icon(Icons.search),
         suffixIcon: _query.isNotEmpty
             ? IconButton(
                 icon: const Icon(Icons.clear),
                 onPressed: () {
+                  _debounceTimer?.cancel();
                   _searchController.clear();
                   setState(() => _query = '');
                   _fetchCoffeeShops();
@@ -479,63 +751,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(vertical: 0),
       ),
-      onChanged: (val) => setState(() => _query = val.trim()),
+      onChanged: (val) {
+        setState(() => _query = val.trim());
+        _debouncedFetch();
+      },
       onSubmitted: (val) => _fetchCoffeeShops(),
-    );
-  }
-
-  Widget _buildPriceField() {
-    return TextField(
-      controller: _priceController,
-      keyboardType: TextInputType.number,
-      decoration: InputDecoration(
-        hintText: 'Harga Max (e.g. 30000)',
-        prefixIcon: const Icon(Icons.payments, size: 20),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      onChanged: (val) => setState(() => _maxPrice = int.tryParse(val.trim())),
-      onSubmitted: (val) => _fetchCoffeeShops(),
-    );
-  }
-
-  Widget _buildSortDropdown() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[300]!),
-        borderRadius: BorderRadius.circular(12),
-        color: Colors.white,
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _sortBy,
-          isExpanded: true,
-          icon: const Icon(Icons.arrow_drop_down, color: Colors.orange),
-          style: const TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
-          onChanged: (String? newValue) {
-            if (newValue != null) {
-              setState(() => _sortBy = newValue);
-              _fetchCoffeeShops();
-            }
-          },
-          items: const [
-            DropdownMenuItem(value: 'rating', child: Text('⭐ Rating')),
-            DropdownMenuItem(value: 'nearest', child: Text('📍 Terdekat')),
-            DropdownMenuItem(value: 'price_asc', child: Text('💵 Termurah')),
-            DropdownMenuItem(value: 'price_desc', child: Text('💎 Termahal')),
-          ],
-        ),
-      ),
     );
   }
 
@@ -549,46 +769,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon: Icon(_showMap ? Icons.grid_view : Icons.map, color: Colors.white),
         onPressed: () => setState(() => _showMap = !_showMap),
         tooltip: _showMap ? 'Sembunyikan Peta' : 'Tampilkan Peta',
-      ),
-    );
-  }
-
-  Widget _buildFacilitiesSection() {
-    return SizedBox(
-      height: 48,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        children: facilityIcons.keys.map((facility) {
-          final isSelected = _selectedFacilities.contains(facility);
-          return Padding(
-            padding: const EdgeInsets.only(right: 8.0, top: 4.0, bottom: 4.0),
-            child: FilterChip(
-              avatar: Icon(
-                facilityIcons[facility],
-                size: 16,
-                color: isSelected ? Colors.white : Colors.grey[600],
-              ),
-              label: Text(
-                facilityLabels[facility] ?? facility,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.grey[800],
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-              selected: isSelected,
-              selectedColor: Colors.orange[800],
-              checkmarkColor: Colors.white,
-              backgroundColor: Colors.white,
-              side: BorderSide(color: Colors.grey[200]!),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              onSelected: (_) => _toggleFacility(facility),
-            ),
-          );
-        }).toList(),
       ),
     );
   }
@@ -947,12 +1127,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildOfflineBanner() {
+    if (_offlineMessage == null) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange[200]!),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_off, color: Colors.orange[800], size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _offlineMessage!,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.orange[900],
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _offlineMessage = null),
+            child: Icon(Icons.close, size: 16, color: Colors.orange[800]),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMobileDashboard(BoxConstraints constraints) {
     return ListView(
       children: [
         _buildWelcomeCard(),
-        _buildFiltersSection(isWide: false),
-        _buildFacilitiesSection(),
+        _buildOfflineBanner(),
+        _buildFiltersSection(),
         const SizedBox(height: 8),
         if (_showMap)
           Container(
@@ -972,8 +1186,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ListView(
       children: [
         _buildWelcomeCard(),
-        _buildFiltersSection(isWide: true),
-        _buildFacilitiesSection(),
+        _buildOfflineBanner(),
+        _buildFiltersSection(),
         const SizedBox(height: 8),
         if (_showMap)
           Container(

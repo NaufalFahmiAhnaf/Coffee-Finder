@@ -11,7 +11,7 @@ const List<Map<String, dynamic>> fallbackCoffeeShops = [
     'price' : 37500,
     'rating' : 4.6,
     'description' : 'Time Coffee hadir dengan konsep coffee shop yang unik dan menu kopi yang beragam.',
-    'facilities' : {'wifi' : true, 'outdoor' : false, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
+    'facilities' : {'wifi' : true, 'outdoor' : true, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
   },
   {
     'id': 'fb_2',
@@ -33,7 +33,7 @@ const List<Map<String, dynamic>> fallbackCoffeeShops = [
     'price' : 37500,
     'rating' : 4.5,
     'description' : 'Kedai kopi modern dengan cita rasa klasik. Pená Coffee & Roastery siap menemani hari-harimu.',
-    'facilities' : {'wifi' : true, 'outdoor' : false, 'ac' : true, 'sockets' : false, 'smoking_room' : false}
+    'facilities' : {'wifi' : true, 'outdoor' : true, 'ac' : true, 'sockets' : true, 'smoking_room' : false}
   },
   {
     'id': 'fb_4',
@@ -44,7 +44,7 @@ const List<Map<String, dynamic>> fallbackCoffeeShops = [
     'price' : 25000,
     'rating' : 4.5,
     'description' : 'Tempat nongkrong favorit di Jl. Ketintang Sel. No.93. Vervins Coffee menawarkan kopi premium dan suasana yang menyenangkan.',
-    'facilities' : {'wifi' : true, 'outdoor' : false, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
+    'facilities' : {'wifi' : true, 'outdoor' : true, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
   },
   {
     'id': 'fb_5',
@@ -88,7 +88,7 @@ const List<Map<String, dynamic>> fallbackCoffeeShops = [
     'price' : 13000,
     'rating' : 4.7,
     'description' : 'Kedai kopi modern dengan cita rasa klasik. Tanah Kopi - Margorejo siap menemani hari-harimu.',
-    'facilities' : {'wifi' : true, 'outdoor' : false, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
+    'facilities' : {'wifi' : true, 'outdoor' : true, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
   },
   {
     'id': 'fb_9',
@@ -110,7 +110,7 @@ const List<Map<String, dynamic>> fallbackCoffeeShops = [
     'price' : 37500,
     'rating' : 4.7,
     'description' : 'BARA CAFE - Cafe dengan racikan kopi spesial dan interior yang instagramable.',
-    'facilities' : {'wifi' : true, 'outdoor' : false, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
+    'facilities' : {'wifi' : true, 'outdoor' : true, 'ac' : true, 'sockets' : true, 'smoking_room' : true}
   },
   {
     'id': 'fb_11',
