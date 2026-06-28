@@ -1,0 +1,94 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend-coffee/Dockerfile
+    container_name: coffee-finder-backend
+    working_dir: /var/www/html
+    command: sh -c "composer install && php artisan optimize:clear && php artisan serve --host=0.0.0.0 --port=8000"
+    volumes:
+      - ./backend-coffee:/var/www/html
+      - backend_vendor:/var/www/html/vendor
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: coffee_finder
+      DB_USERNAME: coffee_finder
+      DB_PASSWORD: coffee_finder
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - coffee_finder
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend-coffee/Dockerfile
+    container_name: coffee-finder-frontend
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./frontend-coffee:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - coffee_finder
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: coffee-finder-postgres
+    environment:
+      POSTGRES_DB: coffee_finder
+      POSTGRES_USER: coffee_finder
+      POSTGRES_PASSWORD: coffee_finder
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coffee_finder -d coffee_finder"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coffee_finder
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: coffee-finder-pgadmin
+    profiles:
+      - dev
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@coffee-finder.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - coffee_finder
+
+volumes:
+  backend_vendor:
+  frontend_node_modules:
+  postgres_data:
+
+networks:
+  coffee_finder:
+    driver: bridge

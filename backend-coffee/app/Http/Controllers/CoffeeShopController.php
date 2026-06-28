@@ -2,21 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CoffeeShop;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class CoffeeShopController extends Controller
 {
 
     public function index(Request $request)
     {
-        $lat = $request->input('lat', -7.2504);
-        $lng = $request->input('lng', 112.7688);
-
-        $data = DB::table('coffee_shops')
+        $data = CoffeeShop::query()
             ->select('id', 'name', 'address', 'latitude', 'longitude', 'rating', 'price', 'facilities', 'image_url')
             ->get()
-            ->map(function ($item) {
+            ->map(function (CoffeeShop $item) {
                 return [
                     'id' => $item->id,
                     'name' => $item->name,
@@ -25,7 +22,7 @@ class CoffeeShopController extends Controller
                     'longitude' => (float) $item->longitude,
                     'rating' => (float) $item->rating,
                     'price' => (int) $item->price,
-                    'facilities' => is_array($item->facilities) ? $item->facilities : json_decode($item->facilities ?? '{}', true),
+                    'facilities' => $item->facilities ?? [],
                     'image_url' => $item->image_url,
                 ];
             })
@@ -42,16 +39,21 @@ class CoffeeShopController extends Controller
             $q = strtolower($request->q);
             $filtered = $filtered->filter(function ($item) use ($q) {
                 return str_contains(strtolower($item['name']), $q) ||
-                       str_contains(strtolower($item['address']), $q);
+                       str_contains(strtolower($item['address'] ?? ''), $q);
             });
         }
 
         // Facilities (AND filtering)
         if ($request->has('facilities')) {
-            $reqFacilities = (array) $request->facilities;
+            $reqFacilities = is_array($request->facilities)
+                ? $request->facilities
+                : explode(',', (string) $request->facilities);
+
+            $reqFacilities = array_filter($reqFacilities);
+
             $filtered = $filtered->filter(function ($item) use ($reqFacilities) {
                 foreach ($reqFacilities as $fac) {
-                    if (empty($item['facilities'][$fac])) {
+                    if (empty(($item['facilities'] ?? [])[$fac])) {
                         return false;
                     }
                 }

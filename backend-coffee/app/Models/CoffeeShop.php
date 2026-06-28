@@ -18,14 +18,14 @@ class CoffeeShop extends Model
         'image_url',
         'latitude',
         'longitude',
-        'facilities'
+        'facilities',
     ];
 
     protected $casts = [
-        'facilities' => 'array',
         'latitude' => 'double',
         'longitude' => 'double',
         'price' => 'integer',
         'rating' => 'float',
+        'facilities' => 'array',
     ];
 }
